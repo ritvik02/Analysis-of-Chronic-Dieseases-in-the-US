@@ -1,0 +1,296 @@
+# Results
+```{r}
+#All Imports here
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(ggplot2)
+library(choroplethr)
+library(tidyverse)
+library(mapview)
+library(lubridate)
+library(geofacet)
+library(plotly)
+options(warn=-1)
+```
+
+```{r}
+#Preprocessing and converting to minifiles that will be used throughout to plot
+data = read.csv('/Users/vritansh/Documents/Columbia/EDAV/EDAV_FINAL_PROJECT/USChronicDiseases.csv')
+
+```
+
+
+```{r}
+#We clean the dataset for plots 
+clean_dataset <- function(data) {
+#Get only useful columns, Drop the ones not required
+data <-dplyr::select(data, -c('StratificationCategoryID2', 'StratificationCategoryID3','StratificationID2','StratificationID3', 'StratificationCategory2','Stratification2','StratificationCategory3','Stratification3','Response','LowConfidenceLimit', 'HighConfidenceLimit', 'ResponseID', 'DataValueUnit', 'DataValueAlt'))
+          
+          #Consider data only for 2018-2020
+          df <- data[data$YearStart %in% c('2018', '2019', '2020'), ]
+          
+          #Select only number
+          df <- df[df$DataValueType %in% c('Number'), ]
+          
+          #Preprocess data here 
+          df$DataValue[df$DataValue==""] <- 0
+          
+          #replace data with a numerical value
+          df$DataValue <- as.numeric(df$DataValue)
+          
+          #Add code for NVSS
+          df <- df[df$DataSource %in% c('NVSS'), ]
+
+          #Not required as we're not dealing with lat long values currently    
+          #Provide reference for the X and Y 
+          df[c("Longitude", "Latitude")] <- do.call(rbind, lapply(strsplit(df$GeoLocation , "[()]"), function(col) {
+            (parts <- unlist(strsplit(col[2], " ")))
+          }))
+          
+          #Longitude
+          df$Longitude<-as.double(df$Longitude)
+          options(digits=16)
+          
+          #Latitude
+          df$Latitude<-as.double(df$Latitude)
+          options(digits=16)
+          
+          #Remove Missing Values from Latitude and Longitude
+          df<-df[!is.na(df$Latitude), ]
+          
+          df<-df[!is.na(df$Longitude), ]
+          
+          return(df)
+}
+
+df <- clean_dataset(data = data)
+write.csv(df, "eda_geo_spliced.csv", row.names=FALSE)
+
+```
+
+## Topic Distribution 
+
+This plot shows the distribution of diseases across the country,
+It indicates that the number of people affected by "Cardiovascular Disease" is significantly higher in comparison with the rest of the prevalent diseases that include "Overarching Conditions", "Chronic Obstructive Pulmonary Disease", "Diabetes", and "Chronic Kidney Disease".
+
+```{r}
+#Using the df data above
+data <- read.csv('https://raw.githubusercontent.com/vritansh/geochronicdisease/main/data/eda_geo_spliced.csv')
+```
+
+```{r}
+data %>%
+  group_by(Topic) %>%
+  summarise(count = sum(DataValue)) %>%
+  ggplot(aes(x=fct_reorder(Topic, count, .desc = FALSE),y=count)) +
+  geom_bar(stat = "identity",fill = "cyan3") +
+  ggtitle("Topic Distribution") +
+  coord_flip()+
+  xlab("Topics") +
+  theme(panel.grid.major.x = element_blank())
+```
+
+
+
+```{r}
+data <- data[data$Topic %in% c("Cardiovascular Disease", "Overarching Conditions", "Chronic Obstructive Pulmonary Disease", "Diabetes", "Chronic Kidney Disease"), ]
+``` 
+
+
+## Gender Distribution
+
+From the plot below, we estimate the number of females and males that have been affected by a specific disease.
+
+<b>Key takeaways:</b> </br>
+1. <b><i>Cardiovascular Disease (CVD):</b></i> 
+About 2500000 males are affected by CVD whereas the number of females is around 2250000.
+</br>
+2. <b><i>Chronic Kidney Disease:</b></i> 
+There is a very slight difference between the count of the male and female which is below 500000.
+</br>
+3. <b><i>Chronic Obstructive Pulmonary Disease Disease:</b></i> 
+The ratio od male to female in this case in 1, which indicates equal number of males and females affected by this disease in the US.
+</br>
+4.<b><i>Diabetes:</b></i> 
+The males affected is close to 500000 and the number of females is slighly over 450000.
+</br>
+5. <b><i>Overarching Conditions:</b></i> 
+The male count is around 700000 and that of the female is lower than 500000.
+ 
+```{r}
+data_distribution <- data %>% group_by(Topic, StratificationCategoryID1, Stratification1) %>% summarise(total_count=sum(DataValue),  .groups ='drop')
+
+```
+
+```{r}
+data_G <- data_distribution[data_distribution$StratificationCategoryID1 %in% c("GENDER"), ]
+```
+
+```{r}
+ggplot(data_G, aes(x = Stratification1, y = total_count)) +
+  geom_col(position = "dodge", fill = "thistle3") +
+  ggtitle("Gender Distribution") +
+  xlab("") +
+  ylab("Count")+
+  facet_wrap(~Topic)
+```
+
+## Graph Showing the Top Cardiovascular Diseases
+
+
+```{r}
+df<- read.csv('https://raw.githubusercontent.com/vritansh/geochronicdisease/main/data/eda_geo_spliced.csv')
+
+plot_geospatial_us <- function(df_disease, title, legend) {
+  
+  #Aggregate all values for a particular state
+  df_disease <- df_disease %>% group_by(LocationDesc) %>% summarise(total_count=sum(DataValue),  .groups='drop') 
+  
+  #Create state and value column names for cholorpleth
+  colnames(df_disease) <- c('state','value')
+  
+  #Preprocess data for graph
+  df_disease_display <- df_disease  %>% 
+    as.data.frame() %>% 
+    transmute(region = tolower(`state`), value = df_disease$value)
+  
+  #Display choropleth
+  state_choropleth(df_disease_display,
+                   title = title,
+                   legend = legend)
+}
+
+```
+
+### Geomap : Mortality due to Cardiovascular Diseases
+The plot shows the total count of the cardiovascular diseases across multiple states. The data belongs to the below topics and has been aggregated to provide complete picture.
+
+<b>Questions</b>
+
+<ol> [1] "Mortality from coronary heart disease" </ol>        
+<ol> [2] "Mortality from total cardiovascular diseases" </ol> 
+<ol> [3] "Mortality from cerebrovascular disease (stroke)" </ol>
+<ol> [4] "Mortality from diseases of the heart" </ol>     
+<ol> [5] "Mortality from heart failure" </ol>
+
+<b>States with highest mortality:</b></br>
+Texas, New York, Illinois, California, Florida 
+
+<b>States with lowest mortality:</b></br>
+Montana, North Dakota, Wyoming, South Dakota, Utah
+
+
+```{r}
+#"Cardiovascular Disease", "Chronic Obstructive Pulmonary Disease" and "Diabetes"
+df_disease <- df[df$Topic == 'Cardiovascular Disease', ]
+plot_geospatial_us(df_disease = df_disease,title = "Mortality due to Cardiovascular disease", legend = "Count of Mortality")
+```
+
+
+### Geomap : Mortality due to Chronic Obstructive Pulmonary Disease
+The plot shows the total count of the cardiovascular diseases across multiple states. The data belongs to the below topics and has been aggregated to provide complete picture.
+
+<b>Questions</b>
+<ol> [1] "Mortality from coronary heart disease" </ol>         
+<ol> [2] "Mortality from total cardiovascular diseases" </ol>
+<ol> [3] "Mortality from cerebrovascular disease (stroke)" </ol>
+<ol> [4] "Mortality from diseases of the heart" </ol>     
+<ol> [5] "Mortality from heart failure" </ol>
+
+<b>States with highest mortality:</b> </br>
+Texas, New York, Ohio, California, Florida 
+
+<b>States with lowest mortality:</b> </br>
+North Dakota, Wyoming, South Dakota, Utah, New Mexico
+
+
+```{r}
+#"Cardiovascular Disease", "Chronic Obstructive Pulmonary Disease" and "Diabetes"
+df_disease <- df[df$Topic == 'Chronic Obstructive Pulmonary Disease', ]
+plot_geospatial_us(df_disease = df_disease,title = "Mortality due to Chronic Obstructive Pulmonary Disease", legend = "Count of Mortality")
+```
+
+
+
+
+### Geomap : Mortality due to Diabetes
+The plot shows the total count of the cardiovascular diseases across multiple states. The data belongs to the below topics and has been aggregated to provide complete picture.
+
+<b>Questions</b>
+<ol> [1] "Mortality with diabetic ketoacidosis reported as any listed cause of death" </ol>
+<ol> [2] "Mortality due to diabetes reported as any listed cause of death" </ol>
+
+<b>States with highest mortality:</b> </br>
+Texas, New York, Ohio, California, Florida 
+
+<b>States with lowest mortality:</b> </br>
+Montana, North Dakota, Wyoming, South Dakota, Utah
+
+
+```{r}
+#"Cardiovascular Disease", "Chronic Obstructive Pulmonary Disease" and "Diabetes"
+df_disease <- df[df$Topic == 'Diabetes', ]
+plot_geospatial_us(df_disease = df_disease,title = "Mortality due to Chronic Obstructive Pulmonary Disease", legend = "Count of Mortality")
+```
+
+
+```{r}
+
+#Extract useful information from the complete data and save it.
+save_geospatial_time <- function(data){
+  
+df <- data[data$DataValueType %in% c('Number'), ]
+#Preprocess data here 
+df$DataValue[df$DataValue==""] <- 0
+#Setting Data value
+df$DataValue <- as.numeric(df$DataValue)
+#Add code for NVSS
+df <- df[df$DataSource %in% c('NVSS'), ]
+#Get all states
+df <- df[df$LocationAbbr %in% c('TX','CA','FL','NY'), ]
+#Get all values for location abbrevations
+df_spread_geo_time <- df %>% group_by(LocationAbbr,Topic, YearEnd) %>% summarise(total_count=sum(DataValue),  .groups ='drop') 
+#get df spread geo time total
+df_spread_geo_time <- df_spread_geo_time[order(df_spread_geo_time$total_count),]
+#Save the data to a dataset
+df_spread_geo_time$YearEnd <- as.Date(as.character(df_spread_geo_time$YearEnd), format = "%Y")
+#Save the data to a dataset and use later on github pages.
+write.csv(df_spread_geo_time, "eda_geospatial_time.csv", row.names=FALSE)
+}
+data <- read.csv('/Users/vritansh/Documents/Columbia/EDAV/EDAV_FINAL_PROJECT/USChronicDiseases.csv')
+save_geospatial_time(data)
+
+```
+
+
+## Timeseries Faceted Geoplot
+In this plot we're analyzing if the mortality chronic diseases have increased in the past decade. For this we've considerered the data for one decade on the top five states from above. This would give us insights on the health care and how people have evolved. It can be helpful in predicting useful information regarding infrastructure of a state.
+
+<b>Key Trends:</b>
+</br>
+1. <b><i>Cardiovascular Disease</i></b>
+  Except for New York state, for all the states the mortality caused by cardiovascular disease has increased. </br>
+2. <b><i>Diabetes in Texas</i></b>
+  As we can observe from the graph the mortality due to diabetes in Texas was ~69,000 in the year 2017, It increased close to 116,000 in 2018 and then took a dip in 2019 to ~72,000. </br>
+3. <b><i>Data consistency for Diabetes Data</i></b>
+ As we observed in above point the data trend for diabetes data similar across other states as well. It can be accounted to the way data was collected. And this dip is only seen from 2017 to 2019. This trend is interesting as it could mean that from the years 2017 to 2019 information is either with errors or in actual these states had a dip in the mortality due to diabetes. 
+
+```{r}
+
+plot_geospatial_time <- function(df_spread_geo_time) {
+g_timeseries_geo <- ggplot(df_spread_geo_time, aes( YearEnd , total_count, color=`Topic`)) +                                    
+  geom_line(aes(group = `Topic`)) +
+  scale_x_date(limits = c(as.Date("2011-02-01"), as.Date("2019-12-31")), date_breaks = "12 months", date_labels = "%Y") +
+  facet_wrap(. ~ LocationAbbr, nrow = 4) +
+  theme(axis.text.x = element_text(size = 8 , hjust = 1))
+  ggplotly(g_timeseries_geo)
+}
+
+#Read Data From CSV that was saved in previous step from Github and then plot 
+df <- read_csv('https://raw.githubusercontent.com/vritansh/geochronicdisease/main/data/eda_geospatial_time.csv')
+plot_geospatial_time(df)
+
+```
+
+
