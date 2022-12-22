@@ -1,5 +1,5 @@
 
-<h1> Geospatial Analysis of Chronic Diseases </h1> 
+<h1> Geospatial Analysis of Chronic Diseases in the US </h1> 
 
 <h2> Note </h2> 
 
